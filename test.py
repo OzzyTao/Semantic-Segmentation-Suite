@@ -7,9 +7,11 @@ from utils import utils, helpers
 from builders import model_builder
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--checkpoint_path', type=str, default=None, required=True, help='The path to the latest checkpoint weights for your model.')
-parser.add_argument('--crop_height', type=int, default=512, help='Height of cropped input image to network')
-parser.add_argument('--crop_width', type=int, default=512, help='Width of cropped input image to network')
+parser.add_argument('--checkpoint_path', type=str, default=None, required=True, help='The path to the latest checkpoint path for your model.')
+parser.add_argument('--crop_height', type=int, default=512, help='Height of cropped image before rescale')
+parser.add_argument('--crop_width', type=int, default=512, help='Width of cropped image before rescale')
+parser.add_argument('--input_height', type=int, default=512, help='Height of the input image to network')
+parser.add_argument('--input_width',type=int,default=512,help='Width of the input image to network')
 parser.add_argument('--model', type=str, default=None, required=True, help='The model you are using')
 parser.add_argument('--dataset', type=str, default="CamVid", required=False, help='The dataset you are using')
 args = parser.parse_args()
@@ -32,15 +34,15 @@ config.gpu_options.allow_growth = True
 sess=tf.Session(config=config)
 
 net_input = tf.placeholder(tf.float32,shape=[None,None,None,3])
-net_output = tf.placeholder(tf.float32,shape=[None,None,None,num_classes]) 
+net_output = tf.placeholder(tf.float32,shape=[None,None,None,num_classes])
 
-network, _ = model_builder.build_model(args.model, net_input=net_input, num_classes=num_classes, crop_width=args.crop_width, crop_height=args.crop_height, is_training=False)
+network, _ = model_builder.build_model(args.model, net_input=net_input, num_classes=num_classes, crop_width=args.input_width, crop_height=args.input_height, is_training=False)
 
 sess.run(tf.global_variables_initializer())
 
 print('Loading model checkpoint weights ...')
 saver=tf.train.Saver(max_to_keep=1000)
-saver.restore(sess, args.checkpoint_path)
+saver.restore(sess, tf.train.latest_checkpoint(args.checkpoint_path))
 
 # Load the data
 print("Loading the data ...")
@@ -65,9 +67,17 @@ for ind in range(len(test_input_names)):
     sys.stdout.write("\rRunning test image %d / %d"%(ind+1, len(test_input_names)))
     sys.stdout.flush()
 
-    input_image = np.expand_dims(np.float32(utils.load_image(test_input_names[ind])[:args.crop_height, :args.crop_width]),axis=0)/255.0
-    gt = utils.load_image(test_output_names[ind])[:args.crop_height, :args.crop_width]
+    input_image = utils.load_image(test_input_names[ind])
+    gt = utils.load_image(test_output_names[ind])
+    if args.crop_height and args.crop_width:
+        input_image,gt = utils.random_crop(input_image,gt,args.crop_height,args.crop_width)
+    input_image,gt = utils.input_resize(input_image,gt,args.input_height,args.input_width)
+    input_image = np.expand_dims(np.float32(input_image), axis=0) / 255.0
     gt = helpers.reverse_one_hot(helpers.one_hot_it(gt, label_values))
+
+    # input_image = np.expand_dims(np.float32(utils.load_image(test_input_names[ind])[:args.crop_height, :args.crop_width]),axis=0)/255.0
+    # gt = utils.load_image(test_output_names[ind])[:args.crop_height, :args.crop_width]
+    # gt = helpers.reverse_one_hot(helpers.one_hot_it(gt, label_values))
 
     st = time.time()
     output_image = sess.run(network,feed_dict={net_input:input_image})

@@ -1,12 +1,10 @@
 from __future__ import print_function, division
 import os,time,cv2, sys, math
 import tensorflow as tf
-import tensorflow.contrib.slim as slim
 import numpy as np
 import time, datetime
 import os, random
-from scipy.misc import imread
-import ast
+from cv2 import imread
 from sklearn.metrics import precision_score, \
     recall_score, confusion_matrix, classification_report, \
     accuracy_score, f1_score
@@ -38,8 +36,17 @@ def prepare_data(dataset_dir):
     for file in os.listdir(dataset_dir + "/test_labels"):
         cwd = os.getcwd()
         test_output_names.append(cwd + "/" + dataset_dir + "/test_labels/" + file)
-    train_input_names.sort(),train_output_names.sort(), val_input_names.sort(), val_output_names.sort(), test_input_names.sort(), test_output_names.sort()
+    train_input_names.sort(key=get_file_name)
+    train_output_names.sort(key=get_file_name)
+    val_input_names.sort(key=get_file_name)
+    val_output_names.sort(key=get_file_name)
+    test_input_names.sort(key=get_file_name)
+    test_output_names.sort(key=get_file_name)
     return train_input_names,train_output_names, val_input_names, val_output_names, test_input_names, test_output_names
+
+def get_file_name(path):
+    filename, fileext = os.path.splitext(os.path.basename(path))
+    return int(filename.split('_')[1])
 
 def load_image(path):
     image = cv2.cvtColor(cv2.imread(path,-1), cv2.COLOR_BGR2RGB)
@@ -180,6 +187,11 @@ def random_crop(image, label, crop_height, crop_width):
     else:
         raise Exception('Crop shape (%d, %d) exceeds image dimensions (%d, %d)!' % (crop_height, crop_width, image.shape[0], image.shape[1]))
 
+def input_resize(image,label,resize_height,resize_width):
+    if (image.shape[0] != label.shape[0]) or (image.shape[1] != label.shape[1]):
+        raise Exception('Image and label must have the same dimensions!')
+    return cv2.resize(image,(resize_width,resize_height)),cv2.resize(label,(resize_width,resize_height))
+
 # Compute the average segmentation accuracy across all classes
 def compute_global_accuracy(pred, label):
     total = len(label)
@@ -216,7 +228,7 @@ def compute_class_accuracies(pred, label, num_classes):
 def compute_mean_iou(pred, label):
 
     unique_labels = np.unique(label)
-    num_unique_labels = len(unique_labels);
+    num_unique_labels = len(unique_labels)
 
     I = np.zeros(num_unique_labels)
     U = np.zeros(num_unique_labels)
@@ -296,4 +308,42 @@ def memory():
     py = psutil.Process(pid)
     memoryUse = py.memory_info()[0]/2.**30  # Memory use in GB
     print('Memory usage in GBs:', memoryUse)
+
+def mean_iou_loss_with_logits(logits,labels,num_classes):
+    pred = tf.argmax(logits,axis=-1)
+    labels = tf.argmax(labels,axis=-1)
+    ious, _op = tf.metrics.mean_iou(labels,pred,num_classes)
+    return tf.Variable(initial_value=-tf.log(tf.reduce_mean(ious)),name='loss', trainable=True)
+
+
+def multi_category_focal_loss2(gamma=2., alpha=.25):
+    """
+    focal loss for multi category of multi label problem
+    适用于多分类或多标签问题的focal loss
+    alpha控制真值y_true为1/0时的权重
+        1的权重为alpha, 0的权重为1-alpha
+    当你的模型欠拟合，学习存在困难时，可以尝试适用本函数作为loss
+    当模型过于激进(无论何时总是倾向于预测出1),尝试将alpha调小
+    当模型过于惰性(无论何时总是倾向于预测出0,或是某一个固定的常数,说明没有学到有效特征)
+        尝试将alpha调大,鼓励模型进行预测出1。
+    Usage:
+     model.compile(loss=[multi_category_focal_loss2(alpha=0.25, gamma=2)], metrics=["accuracy"], optimizer=adam)
+    """
+    epsilon = 1.e-7
+    gamma = float(gamma)
+    alpha = tf.constant(alpha, dtype=tf.float32)
+
+    def multi_category_focal_loss2_fixed(y_true, y_pred):
+        y_true = tf.cast(y_true, tf.float32)
+        y_pred = tf.clip_by_value(y_pred, epsilon, 1. - epsilon)
+
+        alpha_t = y_true * alpha + (tf.ones_like(y_true) - y_true) * (1 - alpha)
+        y_t = tf.multiply(y_true, y_pred) + tf.multiply(1 - y_true, 1 - y_pred)
+        ce = -tf.log(y_t)
+        weight = tf.pow(tf.subtract(1., y_t), gamma)
+        fl = tf.multiply(tf.multiply(weight, ce), alpha_t)
+        loss = tf.reduce_mean(fl)
+        return loss
+
+    return multi_category_focal_loss2_fixed
 

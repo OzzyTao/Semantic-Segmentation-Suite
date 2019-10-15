@@ -1,13 +1,12 @@
 from __future__ import print_function
 import os,time,cv2, sys, math
 import tensorflow as tf
-import tensorflow.contrib.slim as slim
 import numpy as np
 import time, datetime
 import argparse
 import random
 import os, sys
-import subprocess
+import tensorlayer as tl
 
 # use 'Agg' on matplotlib so that plots could be generated even without Xserver
 # running
@@ -28,16 +27,18 @@ def str2bool(v):
         raise argparse.ArgumentTypeError('Boolean value expected.')
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--num_epochs', type=int, default=300, help='Number of epochs to train for')
+parser.add_argument('--num_epochs', type=int, default=50, help='Number of epochs to train for')
 parser.add_argument('--epoch_start_i', type=int, default=0, help='Start counting epochs from this number')
 parser.add_argument('--checkpoint_step', type=int, default=5, help='How often to save checkpoints (epochs)')
 parser.add_argument('--validation_step', type=int, default=1, help='How often to perform validation (epochs)')
 parser.add_argument('--image', type=str, default=None, help='The image you want to predict on. Only valid in "predict" mode.')
 parser.add_argument('--continue_training', type=str2bool, default=False, help='Whether to continue training from a checkpoint')
 parser.add_argument('--dataset', type=str, default="CamVid", help='Dataset you are using.')
-parser.add_argument('--crop_height', type=int, default=512, help='Height of cropped input image to network')
-parser.add_argument('--crop_width', type=int, default=512, help='Width of cropped input image to network')
-parser.add_argument('--batch_size', type=int, default=1, help='Number of images in each batch')
+parser.add_argument('--crop_height', type=int, default=None, help='Height of cropped input image to network in pixels')
+parser.add_argument('--crop_width', type=int, default=None,  help='Width of cropped input image to network in pixels')
+parser.add_argument('--input_height', type=int, default=512, help='Height of final input image to network')
+parser.add_argument('--input_width', type=int, default=512, help='Width of final input image to network')
+parser.add_argument('--batch_size', type=int, default=2, help='Number of images in each batch')
 parser.add_argument('--num_val_images', type=int, default=20, help='The number of images to used for validations')
 parser.add_argument('--h_flip', type=str2bool, default=False, help='Whether to randomly flip the image horizontally for data augmentation')
 parser.add_argument('--v_flip', type=str2bool, default=False, help='Whether to randomly flip the image vertically for data augmentation')
@@ -45,13 +46,15 @@ parser.add_argument('--brightness', type=float, default=None, help='Whether to r
 parser.add_argument('--rotation', type=float, default=None, help='Whether to randomly rotate the image for data augmentation. Specifies the max rotation angle in degrees.')
 parser.add_argument('--model', type=str, default="FC-DenseNet56", help='The model you are using. See model_builder.py for supported models')
 parser.add_argument('--frontend', type=str, default="ResNet101", help='The frontend you are using. See frontend_builder.py for supported models')
+parser.add_argument('--learning_rate',type=float,default=0.00005, help='learning rate')
 args = parser.parse_args()
 
 
 def data_augmentation(input_image, output_image):
     # Data augmentation
-    input_image, output_image = utils.random_crop(input_image, output_image, args.crop_height, args.crop_width)
-
+    if args.crop_height and args.crop_width and input_image.shape[0]>args.crop_height and input_image.shape[1]>args.crop_width:
+        input_image, output_image = utils.random_crop(input_image, output_image, args.crop_height, args.crop_width)
+    input_image, output_image = utils.input_resize(input_image, output_image, args.input_height, args.input_width)
     if args.h_flip and random.randint(0,1):
         input_image = cv2.flip(input_image, 1)
         output_image = cv2.flip(output_image, 1)
@@ -92,11 +95,22 @@ sess=tf.Session(config=config)
 net_input = tf.placeholder(tf.float32,shape=[None,None,None,3])
 net_output = tf.placeholder(tf.float32,shape=[None,None,None,num_classes])
 
-network, init_fn = model_builder.build_model(model_name=args.model, frontend=args.frontend, net_input=net_input, num_classes=num_classes, crop_width=args.crop_width, crop_height=args.crop_height, is_training=True)
+network, init_fn = model_builder.build_model(model_name=args.model, frontend=args.frontend, net_input=net_input, num_classes=num_classes, crop_width=args.input_width, crop_height=args.input_height, is_training=True)
 
-loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=network, labels=net_output))
+# class_weights = tf.constant([1.0 for x in range(num_classes)])
+# weights = tf.reduce_sum(class_weights*network, axis=[1,2])
+# unweighted_losses = tf.nn.softmax_cross_entropy_with_logits(logits=network,labels=net_output)
+# weighted_losses = unweighted_losses * weights
+# loss = tf.reduce_mean(weighted_losses)
+outputs = tl.act.pixel_wise_softmax(network)
+loss = 1- tl.cost.dice_coe(outputs,net_output)
 
-opt = tf.train.RMSPropOptimizer(learning_rate=0.0001, decay=0.995).minimize(loss, var_list=[var for var in tf.trainable_variables()])
+# loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=network, labels=net_output))
+# loss = utils.mean_iou_loss_with_logits(network,net_output,num_classes)
+
+# loss = tf.reduce_mean(tf.nn.weighted_cross_entropy_with_logits(labels=net_output,logits=network,pos_weight=0.001))
+
+opt = tf.train.RMSPropOptimizer(learning_rate=args.learning_rate, decay=0.995).minimize(loss, var_list=[var for var in tf.trainable_variables()])
 
 saver=tf.train.Saver(max_to_keep=1000)
 sess.run(tf.global_variables_initializer())
@@ -117,6 +131,8 @@ if args.continue_training:
 # Load the data
 print("Loading the data ...")
 train_input_names,train_output_names, val_input_names, val_output_names, test_input_names, test_output_names = utils.prepare_data(dataset_dir=args.dataset)
+for p in zip(train_input_names,train_output_names):
+    print(p)
 
 
 
@@ -125,6 +141,8 @@ print("Dataset -->", args.dataset)
 print("Model -->", args.model)
 print("Crop Height -->", args.crop_height)
 print("Crop Width -->", args.crop_width)
+print("Input Height -->", args.input_height)
+print("Input width -->", args.input_width)
 print("Num Epochs -->", args.num_epochs)
 print("Batch Size -->", args.batch_size)
 print("Num Classes -->", num_classes)
@@ -174,7 +192,6 @@ for epoch in range(args.epoch_start_i, args.num_epochs):
             id = id_list[index]
             input_image = utils.load_image(train_input_names[id])
             output_image = utils.load_image(train_output_names[id])
-
             with tf.device('/cpu:0'):
                 input_image, output_image = data_augmentation(input_image, output_image)
 
@@ -234,10 +251,15 @@ for epoch in range(args.epoch_start_i, args.num_epochs):
 
         # Do the validation on a small set of validation images
         for ind in val_indices:
-
-            input_image = np.expand_dims(np.float32(utils.load_image(val_input_names[ind])[:args.crop_height, :args.crop_width]),axis=0)/255.0
-            gt = utils.load_image(val_output_names[ind])[:args.crop_height, :args.crop_width]
+            input_image = utils.load_image(val_input_names[ind])
+            gt = utils.load_image(val_output_names[ind])
+            input_image,gt = utils.random_crop(input_image,gt,args.crop_height,args.crop_width)
+            input_image,gt = utils.input_resize(input_image,gt,args.input_height,args.input_width)
+            input_image = np.expand_dims(np.float32(input_image),axis=0)/255.0
             gt = helpers.reverse_one_hot(helpers.one_hot_it(gt, label_values))
+            # input_image = np.expand_dims(np.float32(utils.load_image(val_input_names[ind])[:args.crop_height, :args.crop_width]),axis=0)/255.0
+            # gt = utils.load_image(val_output_names[ind])[:args.crop_height, :args.crop_width]
+            # gt = helpers.reverse_one_hot(helpers.one_hot_it(gt, label_values))
 
             # st = time.time()
 
@@ -311,7 +333,7 @@ for epoch in range(args.epoch_start_i, args.num_epochs):
     ax1.set_ylabel("Avg. val. accuracy")
 
 
-    plt.savefig('accuracy_vs_epochs.png')
+    plt.savefig(os.path.join('checkpoints', 'accuracy_vs_epochs.png'))
 
     plt.clf()
 
@@ -322,7 +344,7 @@ for epoch in range(args.epoch_start_i, args.num_epochs):
     ax2.set_xlabel("Epoch")
     ax2.set_ylabel("Current loss")
 
-    plt.savefig('loss_vs_epochs.png')
+    plt.savefig(os.path.join('checkpoints','loss_vs_epochs.png'))
 
     plt.clf()
 
@@ -333,7 +355,7 @@ for epoch in range(args.epoch_start_i, args.num_epochs):
     ax3.set_xlabel("Epoch")
     ax3.set_ylabel("Current IoU")
 
-    plt.savefig('iou_vs_epochs.png')
+    plt.savefig(os.path.join('checkpoints','iou_vs_epochs.png'))
 
 
 
