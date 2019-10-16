@@ -17,7 +17,7 @@ tfrecords.py
 airs_data/
 CamVid/
 sydney/
-checkpoints/
+checkpoints*/
 *.png
 Predict/
 solar/

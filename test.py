@@ -7,13 +7,14 @@ from utils import utils, helpers
 from builders import model_builder
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--checkpoint_path', type=str, default=None, required=True, help='The path to the latest checkpoint path for your model.')
-parser.add_argument('--crop_height', type=int, default=512, help='Height of cropped image before rescale')
-parser.add_argument('--crop_width', type=int, default=512, help='Width of cropped image before rescale')
+parser.add_argument('--checkpoint_path', type=str, default='checkpoints', help='The path to the latest checkpoint path for your model.')
+parser.add_argument('--crop_height', type=int, default=500, help='Height of cropped image before rescale')
+parser.add_argument('--crop_width', type=int, default=500, help='Width of cropped image before rescale')
 parser.add_argument('--input_height', type=int, default=512, help='Height of the input image to network')
 parser.add_argument('--input_width',type=int,default=512,help='Width of the input image to network')
 parser.add_argument('--model', type=str, default=None, required=True, help='The model you are using')
-parser.add_argument('--dataset', type=str, default="CamVid", required=False, help='The dataset you are using')
+parser.add_argument('--dataset', type=str, default="data", required=False, help='The dataset you are using')
+parser.add_argument('--target',type=str, default="Test",help='result destination')
 args = parser.parse_args()
 
 # Get the names of the classes so we can record the evaluation results
@@ -49,10 +50,10 @@ print("Loading the data ...")
 train_input_names,train_output_names, val_input_names, val_output_names, test_input_names, test_output_names = utils.prepare_data(dataset_dir=args.dataset)
 
 # Create directories if needed
-if not os.path.isdir("%s"%("Test")):
-        os.makedirs("%s"%("Test"))
+# if not os.path.isdir("%s"%("Test")):
+#         os.makedirs("%s"%("Test"))
 
-target=open("%s/test_scores.csv"%("Test"),'w')
+target=open("%s/test_scores.csv"%(args.target),'w')
 target.write("test_name, test_accuracy, precision, recall, f1 score, mean iou, %s\n" % (class_names_string))
 scores_list = []
 class_scores_list = []
@@ -105,8 +106,8 @@ for ind in range(len(test_input_names)):
     
     gt = helpers.colour_code_segmentation(gt, label_values)
 
-    cv2.imwrite("%s/%s_pred.png"%("Test", file_name),cv2.cvtColor(np.uint8(out_vis_image), cv2.COLOR_RGB2BGR))
-    cv2.imwrite("%s/%s_gt.png"%("Test", file_name),cv2.cvtColor(np.uint8(gt), cv2.COLOR_RGB2BGR))
+    cv2.imwrite("%s/%s_pred.png"%(args.target, file_name),cv2.cvtColor(np.uint8(out_vis_image), cv2.COLOR_RGB2BGR))
+    cv2.imwrite("%s/%s_gt.png"%(args.target, file_name),cv2.cvtColor(np.uint8(gt), cv2.COLOR_RGB2BGR))
 
 
 target.close()

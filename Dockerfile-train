@@ -1,6 +1,11 @@
 FROM tensorflow/tensorflow:1.14.0-gpu-py3
+ARG DEBIAN_FRONTEND=noninteractive
 ADD . /app
 WORKDIR /app
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends apt-utils && \
+     apt-get install -y libsm6 libxext6 libxrender-dev && \
+     apt-get install -y python3-tk
 RUN pip install -r requirements.txt
-ENTRYPOINT ["python", "/app/train.py","--brightness","0.2","--rotation","180"]
-CMD ["--crop_height","500","--crop_width","500"]
+# ENTRYPOINT ["python", "/app/train.py","--brightness","0.2","--rotation","180","--dataset","data"]
+CMD ["python", "/app/train.py","--brightness","0.2","--rotation","180","--dataset","data","--crop_height","500","--crop_width","500"]

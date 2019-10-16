@@ -5,18 +5,18 @@ import numpy as np
 from utils.mega_predict import break_images, assemble_images
 from utils import utils, helpers
 from builders import model_builder
-from osgeo import gdal
-from osgeo.gdalconst import *
+# from osgeo import gdal
+# from osgeo.gdalconst import *
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--image', type=str, default=None, required=True, help='The image you want to predict on. ')
-parser.add_argument('--checkpoint_path', type=str, default=None, required=True, help='The path to the latest checkpoint weights for your model.')
-parser.add_argument('--crop_height', type=int, default=512, help='Height of cropped image ')
-parser.add_argument('--crop_width', type=int, default=512, help='Width of cropped image')
+parser.add_argument('--checkpoint_path', type=str, default='checkpoints', help='The path to the latest checkpoint weights for your model.')
+parser.add_argument('--crop_height', type=int, default=500, help='Height of cropped image ')
+parser.add_argument('--crop_width', type=int, default=500, help='Width of cropped image')
 parser.add_argument('--input_height',type=int,default=512, help='Height of input image to network')
 parser.add_argument('--input_width',type=int,default=512,help='Width of input image to network')
 parser.add_argument('--model', type=str, default=None, required=True, help='The model you are using')
-parser.add_argument('--dataset', type=str, default="CamVid", required=False, help='The dataset you are using')
+parser.add_argument('--dataset', type=str, default="data", required=False, help='The dataset you are using')
 args = parser.parse_args()
 
 class_names_list, label_values = helpers.get_label_info(os.path.join(args.dataset, "class_dict.csv"))
@@ -78,29 +78,29 @@ output_image = helpers.reverse_one_hot(output_image)
 rows = output_image.shape[0]
 cols = output_image.shape[1]
 
-raster = gdal.Open(args.image)
-geoTrans = raster.GetGeoTransform()
-projection = raster.GetProjectionRef()
-driver = raster.GetDriver()
+# raster = gdal.Open(args.image)
+# geoTrans = raster.GetGeoTransform()
+# projection = raster.GetProjectionRef()
+# driver = raster.GetDriver()
 
 out_vis_image = helpers.colour_code_segmentation(output_image, label_values)
 file_name = utils.filepath_to_name(args.image)
 dir_name = os.path.dirname(args.image)
-outDs = driver.Create(os.path.join(dir_name,"%s_pred.png"%(file_name)),cols,rows,1,GDT_UInt16)
-for i in [1,2,3]:
-    band = outDs.GetRasterBand(i)
-    band.WriteArray(out_vis_image[:,:,i],0,0)
-    band.FlushCache()
-# cv2.imwrite(os.path.join(dir_name,"%s_pred.png"%(file_name)),cv2.cvtColor(np.uint8(out_vis_image), cv2.COLOR_RGB2BGR))
+# outDs = driver.Create(os.path.join(dir_name,"%s_pred.png"%(file_name)),cols,rows,1,GDT_UInt16)
+# for i in [1,2,3]:
+#     band = outDs.GetRasterBand(i)
+#     band.WriteArray(out_vis_image[:,:,i],0,0)
+#     band.FlushCache()
+cv2.imwrite(os.path.join(dir_name,"%s_pred.png"%(file_name)),cv2.cvtColor(np.uint8(out_vis_image), cv2.COLOR_RGB2BGR))
 
 # out_vis_image = 0.5 * loaded_image + 0.5 * out_vis_image
-out_vis_image = cv2.addWeighted(loaded_image,0.8,out_vis_image,0.2,0)
-# cv2.imwrite(os.path.join(dir_name,"%s_pred_vis.png"%(file_name)),np.uint8(out_vis_image))
-outDs = driver.Create(os.path.join(dir_name,"%s_pred_vis.png"%(file_name)),cols,rows,1,GDT_UInt16)
-for i in [1,2,3]:
-    band = outDs.GetRasterBand(i)
-    band.WriteArray(out_vis_image[:,:,i],0,0)
-    band.FlushCache()
+out_vis_image = cv2.addWeighted(loaded_image,0.5,out_vis_image,0.5,0,dtype=cv2.CV_8U)
+cv2.imwrite(os.path.join(dir_name,"%s_pred_vis.png"%(file_name)),np.uint8(out_vis_image))
+# outDs = driver.Create(os.path.join(dir_name,"%s_pred_vis.png"%(file_name)),cols,rows,1,GDT_UInt16)
+# for i in [1,2,3]:
+#     band = outDs.GetRasterBand(i)
+#     band.WriteArray(out_vis_image[:,:,i],0,0)
+#     band.FlushCache()
 
 print("")
 print("Finished!")
